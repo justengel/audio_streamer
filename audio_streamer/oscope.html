@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+
+    <script type="text/javascript" src="http://cdn.pydata.org/bokeh/release/bokeh-1.3.4.min.js"></script>
+    <script type="text/javascript" src="http://cdn.pydata.org/bokeh/release/bokeh-widgets-1.3.4.min.js"></script>
+    <script type="text/javascript" src="http://cdn.pydata.org/bokeh/release/bokeh-tables-1.3.4.min.js"></script>
+    <script type="text/javascript" src="http://cdn.pydata.org/bokeh/release/bokeh-api-1.3.4.min.js"></script>
+
+    <script type="text/javascript" src="./oscope.js"></script>
+    <script type="text/javascript" src="../includes/dsp.js"></script>
+</head>
+<body>
+    <script>
+        var plt = Bokeh.Plotting;
+        var i;
+
+        var sampleRate = 44100;
+        var nfft = 4096;
+
+        var oscope = new OScope(sampleRate);
+        var fft_buffer = [];
+        var fft = new FFT(nfft, sampleRate);
+        var winFunc = new WindowFunction(DSP.HANN, 0);
+
+        var source = new Bokeh.ColumnDataSource({ data: { x: oscope.x, y: oscope.y } });
+        var source2 = new Bokeh.ColumnDataSource({data: {
+            x: calculate_freq_bins(sampleRate, nfft),
+            y: calculate_freq_bins(sampleRate, nfft), }
+        });
+
+        // make the plot and add some tools
+        var tools = "pan,crosshair,wheel_zoom,box_zoom,reset,save";
+        var plot = plt.figure({ title: "O-Scope", tools: tools,
+            x_range: new Bokeh.Range1d({ start: -1, end: 0 }),
+            y_range: new Bokeh.Range1d({ start: -1, end: 1 }),
+        });
+
+        var plot_fft = plt.figure({ title: "FFT", tools: tools,
+            x_range: new Bokeh.Range1d({ start: 1, end: sampleRate/2 }),
+            y_range: new Bokeh.Range1d({ start: -200, end: 200 }),
+        });
+
+        var line = plot.line({ field: "x" }, { field: "y" }, {
+            source: source,
+            line_width: 2
+        });
+        var line_fft = plot_fft.line({ field: "x" }, { field: "y" }, {
+            source: source2,
+            line_width: 2
+        });
+
+        // show the plot
+        plt.show(plt.gridplot([[plot, plot_fft]]));
+        // plt.show(plot);
+        // plt.show(plot_fft);
+
+        // Web Socket handler
+        setInterval(function(){
+            source.change.emit();
+            source2.change.emit();
+        }, 30);
+
+        function recvData(event) {
+            var vals = new Float32Array(event.data);
+            oscope.addData(Float32Array.from(vals));
+
+            if(oscope.rollData(fft_buffer, vals, nfft)) {
+                // source2.data.y = fft.forward(winFunc.process(fft_buffer));
+                fft.forward(fft_buffer);
+                source2.data.y = fft.spectrum;  //.slice(nfft/2, nfft);
+                // fft_buffer.splice(0, fft_buffer.length);
+            }
+
+            // Also, the DataSource object must be notified when it has changed.
+            //source.change.emit();
+        }
+
+        var ws = new WebSocket("ws://127.0.0.1:8222/");
+        ws.binaryType = "arraybuffer";
+        ws.onmessage = recvData;
+    </script>
+</body>
+</html>
